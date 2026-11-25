@@ -49,12 +49,40 @@
   main { padding: 10px 12px; display: none; }
   main.active { display: block; }
 
+  .round-banner {
+    background: #172033;
+    border: 1px solid #2c3b59;
+    color: #38bdf8;
+    border-radius: 8px;
+    padding: 7px 10px;
+    font-size: 12px;
+    font-weight: 800;
+    margin-bottom: 8px;
+  }
+  .pending-note {
+    background: #111827;
+    border: 1px dashed #334155;
+    color: #9ca3af;
+    border-radius: 10px;
+    padding: 12px;
+    font-size: 12px;
+    margin-bottom: 8px;
+    text-align: center;
+  }
   .card {
     background: #111827;
     border: 1px solid #263248;
     border-radius: 10px;
     padding: 8px;
     margin-bottom: 8px;
+  }
+  .game-sub {
+    font-size: 10px;
+    font-weight: 800;
+    color: #9ca3af;
+    text-transform: uppercase;
+    margin-bottom: 5px;
+    padding-left: 2px;
   }
   .team-pick-row {
     display: flex;
@@ -134,13 +162,13 @@
 
 <header>
   <div class="title-row">
-    <h1>PLAYOFF PREDICTORS • 18-WK</h1>
+    <h1>PLAYOFF PREDICTORS • 18-WK + POSTSEASON</h1>
     <select id="weekSelect"></select>
   </div>
   <div class="btn-row">
-    <button class="b-green" onclick="simCurrentWeek()">Sim Week</button>
+    <button class="b-green" onclick="simCurrentWeek()">Sim Stage</button>
     <button class="b-blue" onclick="simAllWeeks()">Sim All 18 Wks</button>
-    <button class="b-purple" onclick="simBracket()">Sim Bracket</button>
+    <button class="b-purple" onclick="simBracket()">Sim Playoffs</button>
     <button id="statsToggleBtn" class="b-teal" onclick="toggleStatsMode()">Stats: ON</button>
     <button class="b-red" onclick="resetSeason()">Reset</button>
   </div>
@@ -214,7 +242,7 @@
         </table>
       </div>
     </div>
-    <div id="bracketOutput" class="bracket-out">Tap "Sim Bracket" to simulate Wild Card, Divisional, Conference Championships, and Super Bowl.</div>
+    <div id="bracketOutput" class="bracket-out">Play through Weeks 1–18 or jump to WC / DIV / CCG / SB in the stage selector, or tap "Sim Playoffs".</div>
   </div>
 </main>
 
@@ -261,54 +289,35 @@ var TEAMS = {
   SEA: { name: "Seattle Seahawks", conf: "NFC", div: "West", slug: "sea", bg: "#002244", fg: "#69BE28", pwr: 83.0 }
 };
 
-/*
- * Generates a balanced 18-week, 272-game NFL schedule:
- * - Every one of the 32 teams plays strictly 17 games and takes 1 bye week.
- * - Weeks 5-12 each have 4 bye teams (14 games); Weeks 1-4 and 13-18 have 0 byes (16 games).
- * - No team plays twice in the same week or plays the same opponent twice.
- */
+var STAGES = [
+  "1","2","3","4","5","6","7","8","9","10","11","12","13","14","15","16","17","18",
+  "WC","DIV","CCG","SB"
+];
+
+var STAGE_LABELS = {
+  "WC": "Wild Card Round",
+  "DIV": "Divisional Round",
+  "CCG": "Conference Championships",
+  "SB": "Super Bowl"
+};
+
 function generateBalanced18WeekSchedule() {
   var keys = Object.keys(TEAMS);
-  var n = keys.length; // 32
-  // Standard circle-method round-robin gives 31 rounds of 16 unique pairs (496 pairs total).
-  var pool = keys.slice();
-  var rounds = [];
-  for (var r = 0; r < n - 1; r++) {
-    var pairs = [];
-    for (var i = 0; i < n / 2; i++) {
-      var a = pool[i];
-      var b = pool[n - 1 - i];
-      if (r % 2 === 0) pairs.push([a, b]);
-      else pairs.push([b, a]);
-    }
-    rounds.push(pairs);
-    var fixed = pool[0];
-    var rest = pool.slice(1);
-    rest.unshift(rest.pop());
-    pool = [fixed].concat(rest);
-  }
-
-  // Assign 4 bye teams per week across Weeks 5..12 (32 total = 1 bye per team)
   var byeWeeks = [5, 6, 7, 8, 9, 10, 11, 12];
   var shuffledTeams = keys.slice().sort(function() { return Math.random() - 0.5; });
-  var teamByeWk = {};
   var weekByes = {};
   for (var w = 1; w <= 18; w++) weekByes[w] = {};
-
   for (var idx = 0; idx < shuffledTeams.length; idx++) {
-    var bWk = byeWeeks[idx % byeWeeks.length];
-    var tm = shuffledTeams[idx];
-    teamByeWk[tm] = bWk;
-    weekByes[bWk][tm] = true;
+    weekByes[byeWeeks[idx % byeWeeks.length]][shuffledTeams[idx]] = true;
   }
 
-  // Pick 18 rounds and match available (non-bye) teams per week
   var schedByWk = {};
+  for (var wk = 1; wk <= 18; wk++) schedByWk[wk] = [];
+
   var teamGamesCount = {};
   var playedPair = {};
   for (var k = 0; k < keys.length; k++) teamGamesCount[keys[k]] = 0;
 
-  // Use a greedy + swap pass over all 496 possible pairs so every team lands at exactly 17 games
   var allPairs = [];
   for (var x = 0; x < keys.length; x++) {
     for (var y = x + 1; y < keys.length; y++) {
@@ -317,27 +326,19 @@ function generateBalanced18WeekSchedule() {
   }
   allPairs.sort(function() { return Math.random() - 0.5; });
 
-  for (var wk = 1; wk <= 18; wk++) schedByWk[wk] = [];
-
   for (var p = 0; p < allPairs.length; p++) {
-    var t1 = allPairs[p][0];
-    var t2 = allPairs[p][1];
+    var t1 = allPairs[p][0], t2 = allPairs[p][1];
     if (teamGamesCount[t1] >= 17 || teamGamesCount[t2] >= 17) continue;
-
-    // Find an eligible week where neither team is on bye or already scheduled
     for (var wTry = 1; wTry <= 18; wTry++) {
       if (weekByes[wTry][t1] || weekByes[wTry][t2]) continue;
       var busy = false;
       for (var gIdx = 0; gIdx < schedByWk[wTry].length; gIdx++) {
-        var existing = schedByWk[wTry][gIdx];
-        if (existing[0] === t1 || existing[1] === t1 || existing[0] === t2 || existing[1] === t2) {
-          busy = true;
-          break;
-        }
+        var ex = schedByWk[wTry][gIdx];
+        if (ex[0] === t1 || ex[1] === t1 || ex[0] === t2 || ex[1] === t2) { busy = true; break; }
       }
       if (!busy) {
-        if (Math.random() < 0.5) schedByWk[wTry].push([t1, t2]);
-        else schedByWk[wTry].push([t2, t1]);
+        schedByWk[wTry].push(Math.random() < 0.5 ? [t1, t2] : [t2, t1]);
+        playedPair[t1 + "-" + t2] = true;
         teamGamesCount[t1]++;
         teamGamesCount[t2]++;
         break;
@@ -345,12 +346,10 @@ function generateBalanced18WeekSchedule() {
     }
   }
 
-  // Top up any team under 17 games using unused pairs
   for (var pass = 0; pass < 3; pass++) {
     for (var p2 = 0; p2 < allPairs.length; p2++) {
       var a2 = allPairs[p2][0], b2 = allPairs[p2][1];
-      var pairKey = a2 + "-" + b2;
-      if (playedPair[pairKey]) continue;
+      if (playedPair[a2 + "-" + b2]) continue;
       if (teamGamesCount[a2] >= 17 || teamGamesCount[b2] >= 17) continue;
       for (var w2 = 1; w2 <= 18; w2++) {
         if (weekByes[w2][a2] || weekByes[w2][b2]) continue;
@@ -361,7 +360,7 @@ function generateBalanced18WeekSchedule() {
         }
         if (!aBusy && !bBusy) {
           schedByWk[w2].push([a2, b2]);
-          playedPair[pairKey] = true;
+          playedPair[a2 + "-" + b2] = true;
           teamGamesCount[a2]++;
           teamGamesCount[b2]++;
           break;
@@ -369,12 +368,12 @@ function generateBalanced18WeekSchedule() {
       }
     }
   }
-
   return schedByWk;
 }
 
 var SCHED = generateBalanced18WeekSchedule();
 var games = [];
+var playoffGames = {}; // stage ("WC"|"DIV"|"CCG"|"SB") -> array of game objects
 var stats = {};
 var seedsByConf = { AFC: [], NFC: [] };
 var divChamps = { AFC: {}, NFC: {} };
@@ -382,7 +381,37 @@ var leagueOrder = [];
 var standingsMode = "Division";
 var showScoresAndStats = true;
 
+function initPlayoffShells() {
+  playoffGames = {
+    WC: [
+      { id: "wc-afc-27", stage: "WC", conf: "AFC", label: "AFC WC • #7 at #2", away: null, home: null, aSeed: 7, hSeed: 2, aPts: null, hPts: null, played: false, neutral: false },
+      { id: "wc-afc-36", stage: "WC", conf: "AFC", label: "AFC WC • #6 at #3", away: null, home: null, aSeed: 6, hSeed: 3, aPts: null, hPts: null, played: false, neutral: false },
+      { id: "wc-afc-45", stage: "WC", conf: "AFC", label: "AFC WC • #5 at #4", away: null, home: null, aSeed: 5, hSeed: 4, aPts: null, hPts: null, played: false, neutral: false },
+      { id: "wc-nfc-27", stage: "WC", conf: "NFC", label: "NFC WC • #7 at #2", away: null, home: null, aSeed: 7, hSeed: 2, aPts: null, hPts: null, played: false, neutral: false },
+      { id: "wc-nfc-36", stage: "WC", conf: "NFC", label: "NFC WC • #6 at #3", away: null, home: null, aSeed: 6, hSeed: 3, aPts: null, hPts: null, played: false, neutral: false },
+      { id: "wc-nfc-45", stage: "WC", conf: "NFC", label: "NFC WC • #5 at #4", away: null, home: null, aSeed: 5, hSeed: 4, aPts: null, hPts: null, played: false, neutral: false }
+    ],
+    DIV: [
+      { id: "div-afc-a", stage: "DIV", conf: "AFC", label: "AFC Divisional A", away: null, home: null, aSeed: null, hSeed: 1, aPts: null, hPts: null, played: false, neutral: false },
+      { id: "div-afc-b", stage: "DIV", conf: "AFC", label: "AFC Divisional B", away: null, home: null, aSeed: null, hSeed: null, aPts: null, hPts: null, played: false, neutral: false },
+      { id: "div-nfc-a", stage: "DIV", conf: "NFC", label: "NFC Divisional A", away: null, home: null, aSeed: null, hSeed: 1, aPts: null, hPts: null, played: false, neutral: false },
+      { id: "div-nfc-b", stage: "DIV", conf: "NFC", label: "NFC Divisional B", away: null, home: null, aSeed: null, hSeed: null, aPts: null, hPts: null, played: false, neutral: false }
+    ],
+    CCG: [
+      { id: "ccg-afc", stage: "CCG", conf: "AFC", label: "AFC Championship", away: null, home: null, aSeed: null, hSeed: null, aPts: null, hPts: null, played: false, neutral: false },
+      { id: "ccg-nfc", stage: "CCG", conf: "NFC", label: "NFC Championship", away: null, home: null, aSeed: null, hSeed: null, aPts: null, hPts: null, played: false, neutral: false }
+    ],
+    SB: [
+      { id: "sb-final", stage: "SB", conf: "NFL", label: "Super Bowl (Neutral)", away: null, home: null, aSeed: null, hSeed: null, aPts: null, hPts: null, played: false, neutral: true }
+    ]
+  };
+}
+
 function teamLogo(abbr, large) {
+  if (!abbr || !TEAMS[abbr]) {
+    var clsEmpty = large ? "tm-logo-lg" : "tm-logo-sm";
+    return '<span class="badge-fallback ' + clsEmpty + '" style="background:#1e293b;color:#9ca3af;border:1px dashed #475569;">TBD</span>';
+  }
   var t = TEAMS[abbr];
   var cls = large ? "tm-logo-lg" : "tm-logo-sm";
   var url = "https://a.espncdn.com/i/teamlogos/nfl/500/" + t.slug + ".png";
@@ -402,20 +431,30 @@ function fmtRec(st) {
 function saveState() {
   try {
     if (window.localStorage) {
-      window.localStorage.setItem("pp_18wk_iphone_v5", JSON.stringify(games));
+      window.localStorage.setItem("pp_18wk_iphone_v6_reg", JSON.stringify(games));
+      window.localStorage.setItem("pp_18wk_iphone_v6_po", JSON.stringify(playoffGames));
       window.localStorage.setItem("pp_18wk_stats_mode", showScoresAndStats ? "1" : "0");
     }
   } catch (e) {}
 }
 
 function loadState() {
+  initPlayoffShells();
   try {
     if (window.localStorage) {
       var m = window.localStorage.getItem("pp_18wk_stats_mode");
       if (m === "0") showScoresAndStats = false;
       else if (m === "1") showScoresAndStats = true;
 
-      var raw = window.localStorage.getItem("pp_18wk_iphone_v5");
+      var rawPo = window.localStorage.getItem("pp_18wk_iphone_v6_po");
+      if (rawPo) {
+        var parsedPo = JSON.parse(rawPo);
+        if (parsedPo && parsedPo.WC && parsedPo.DIV && parsedPo.CCG && parsedPo.SB) {
+          playoffGames = parsedPo;
+        }
+      }
+
+      var raw = window.localStorage.getItem("pp_18wk_iphone_v6_reg");
       if (raw) {
         var parsed = JSON.parse(raw);
         if (parsed && parsed.length >= 250) { games = parsed; return; }
@@ -428,6 +467,7 @@ function loadState() {
 function buildFreshSchedule() {
   SCHED = generateBalanced18WeekSchedule();
   games = [];
+  initPlayoffShells();
   var id = 0;
   for (var wk = 1; wk <= 18; wk++) {
     var list = SCHED[wk] || [];
@@ -473,8 +513,220 @@ function simPair(away, home, neutral) {
   ];
 }
 
+function getGameWinner(g) {
+  if (!g || !g.played || g.aPts === null || g.hPts === null || !g.away || !g.home) return null;
+  if (g.aPts > g.hPts) return g.away;
+  if (g.hPts > g.aPts) return g.home;
+  // Playoff tiebreaker fallback: higher seed (lower seed number) advances
+  if (g.aSeed && g.hSeed) return g.aSeed < g.hSeed ? g.away : g.home;
+  return g.home;
+}
+
+function syncPlayoffMatchups() {
+  var confs = ["AFC", "NFC"];
+  for (var c = 0; c < confs.length; c++) {
+    var conf = confs[c];
+    var seeds = seedsByConf[conf] || [];
+    var s1 = seeds[0] || null;
+    var s2 = seeds[1] || null;
+    var s3 = seeds[2] || null;
+    var s4 = seeds[3] || null;
+    var s5 = seeds[4] || null;
+    var s6 = seeds[5] || null;
+    var s7 = seeds[6] || null;
+
+    var seedRank = {};
+    for (var i = 0; i < seeds.length; i++) seedRank[seeds[i]] = i + 1;
+
+    var wcList = playoffGames.WC.filter(function(g) { return g.conf === conf; });
+    var wcMatchups = [
+      { g: wcList[0], away: s7, home: s2, aSeed: 7, hSeed: 2, label: conf + " WC • #7 at #2" },
+      { g: wcList[1], away: s6, home: s3, aSeed: 6, hSeed: 3, label: conf + " WC • #6 at #3" },
+      { g: wcList[2], away: s5, home: s4, aSeed: 5, hSeed: 4, label: conf + " WC • #5 at #4" }
+    ];
+
+    var wcWinners = [];
+    var allWcDone = true;
+    for (var w = 0; w < wcMatchups.length; w++) {
+      var m = wcMatchups[w];
+      if (!m.g) continue;
+      if (m.g.away !== m.away || m.g.home !== m.home) {
+        m.g.aPts = null;
+        m.g.hPts = null;
+        m.g.played = false;
+      }
+      m.g.away = m.away;
+      m.g.home = m.home;
+      m.g.aSeed = m.aSeed;
+      m.g.hSeed = m.hSeed;
+      m.g.label = m.label;
+
+      var winTm = getGameWinner(m.g);
+      if (winTm) wcWinners.push(winTm);
+      else allWcDone = false;
+    }
+
+    var divList = playoffGames.DIV.filter(function(g) { return g.conf === conf; });
+    var divA = divList[0];
+    var divB = divList[1];
+
+    if (allWcDone && s1 && wcWinners.length === 3) {
+      // Lowest remaining seed (highest seed number) plays #1 seed
+      wcWinners.sort(function(a, b) { return (seedRank[b] || 99) - (seedRank[a] || 99); });
+      var lowestSeedTm = wcWinners[0];
+      var otherTwo = [wcWinners[1], wcWinners[2]].sort(function(a, b) { return (seedRank[a] || 99) - (seedRank[b] || 99); });
+      var highOther = otherTwo[0];
+      var lowOther = otherTwo[1];
+
+      var nextAwayA = lowestSeedTm;
+      var nextHomeA = s1;
+      if (divA.away !== nextAwayA || divA.home !== nextHomeA) {
+        divA.aPts = null; divA.hPts = null; divA.played = false;
+      }
+      divA.away = nextAwayA;
+      divA.home = nextHomeA;
+      divA.aSeed = seedRank[nextAwayA] || null;
+      divA.hSeed = 1;
+      divA.label = conf + " DIV • #" + (seedRank[nextAwayA] || "?") + " at #1";
+
+      var nextAwayB = lowOther;
+      var nextHomeB = highOther;
+      if (divB.away !== nextAwayB || divB.home !== nextHomeB) {
+        divB.aPts = null; divB.hPts = null; divB.played = false;
+      }
+      divB.away = nextAwayB;
+      divB.home = nextHomeB;
+      divB.aSeed = seedRank[nextAwayB] || null;
+      divB.hSeed = seedRank[nextHomeB] || null;
+      divB.label = conf + " DIV • #" + (seedRank[nextAwayB] || "?") + " at #" + (seedRank[nextHomeB] || "?");
+    } else {
+      for (var dIdx = 0; dIdx < divList.length; dIdx++) {
+        divList[dIdx].away = null;
+        divList[dIdx].home = null;
+        divList[dIdx].aPts = null;
+        divList[dIdx].hPts = null;
+        divList[dIdx].played = false;
+      }
+    }
+
+    var ccg = playoffGames.CCG.filter(function(g) { return g.conf === conf; })[0];
+    var winA = getGameWinner(divA);
+    var winB = getGameWinner(divB);
+    if (winA && winB) {
+      var pair = [winA, winB].sort(function(a, b) { return (seedRank[a] || 99) - (seedRank[b] || 99); });
+      var ccgHome = pair[0];
+      var ccgAway = pair[1];
+      if (ccg.away !== ccgAway || ccg.home !== ccgHome) {
+        ccg.aPts = null; ccg.hPts = null; ccg.played = false;
+      }
+      ccg.away = ccgAway;
+      ccg.home = ccgHome;
+      ccg.aSeed = seedRank[ccgAway] || null;
+      ccg.hSeed = seedRank[ccgHome] || null;
+      ccg.label = conf + " Championship • #" + (seedRank[ccgAway] || "?") + " at #" + (seedRank[ccgHome] || "?");
+    } else {
+      ccg.away = null;
+      ccg.home = null;
+      ccg.aPts = null;
+      ccg.hPts = null;
+      ccg.played = false;
+    }
+  }
+
+  var sb = playoffGames.SB[0];
+  var afcChamp = getGameWinner(playoffGames.CCG.filter(function(g) { return g.conf === "AFC"; })[0]);
+  var nfcChamp = getGameWinner(playoffGames.CCG.filter(function(g) { return g.conf === "NFC"; })[0]);
+  if (afcChamp && nfcChamp) {
+    if (sb.away !== afcChamp || sb.home !== nfcChamp) {
+      sb.aPts = null; sb.hPts = null; sb.played = false;
+    }
+    sb.away = afcChamp;
+    sb.home = nfcChamp;
+    sb.label = "Super Bowl • " + afcChamp + " vs " + nfcChamp;
+  } else {
+    sb.away = null;
+    sb.home = null;
+    sb.aPts = null;
+    sb.hPts = null;
+    sb.played = false;
+  }
+}
+
+function findPlayoffGame(pgid) {
+  var stgKeys = ["WC", "DIV", "CCG", "SB"];
+  for (var s = 0; s < stgKeys.length; s++) {
+    var arr = playoffGames[stgKeys[s]] || [];
+    for (var i = 0; i < arr.length; i++) {
+      if (arr[i].id === pgid) return arr[i];
+    }
+  }
+  return null;
+}
+
+function setPlayoffGameResult(pgid, ap, hp) {
+  var g = findPlayoffGame(pgid);
+  if (!g || !g.away || !g.home) return;
+  var aVal = Math.max(0, Number(ap) || 0);
+  var hVal = Math.max(0, Number(hp) || 0);
+  if (aVal === hVal) aVal += 3; // No ties in playoffs
+  g.aPts = aVal;
+  g.hPts = hVal;
+  g.played = true;
+  saveState();
+  recomputeAll();
+}
+
+function pickPlayoffWinner(pgid, side) {
+  var g = findPlayoffGame(pgid);
+  if (!g || !g.away || !g.home) return;
+  var aEl = document.getElementById("pa-pts-" + pgid);
+  var hEl = document.getElementById("ph-pts-" + pgid);
+  var ca = (aEl && aEl.value !== "") ? Number(aEl.value) : null;
+  var ch = (hEl && hEl.value !== "") ? Number(hEl.value) : null;
+  if (side === "away") {
+    if (ca !== null && ch !== null && ca > ch) setPlayoffGameResult(pgid, ca, ch);
+    else setPlayoffGameResult(pgid, Math.max(ca !== null ? ca : 24, (ch !== null ? ch : 20) + 3), ch !== null ? ch : 20);
+  } else {
+    if (ca !== null && ch !== null && ch > ca) setPlayoffGameResult(pgid, ca, ch);
+    else setPlayoffGameResult(pgid, ca !== null ? ca : 20, Math.max(ch !== null ? ch : 24, (ca !== null ? ca : 20) + 3));
+  }
+}
+
+function clearPlayoffGame(pgid) {
+  var g = findPlayoffGame(pgid);
+  if (!g) return;
+  g.aPts = null;
+  g.hPts = null;
+  g.played = false;
+  saveState();
+  recomputeAll();
+}
+
+function simStage(stageKey) {
+  recomputeAll();
+  var list = playoffGames[stageKey] || [];
+  for (var i = 0; i < list.length; i++) {
+    var g = list[i];
+    if (g.away && g.home && !g.played) {
+      var res = simPair(g.away, g.home, !!g.neutral);
+      var ap = res[0], hp = res[1];
+      if (ap === hp) ap += 3;
+      g.aPts = ap;
+      g.hPts = hp;
+      g.played = true;
+    }
+  }
+  saveState();
+  recomputeAll();
+}
+
 function simCurrentWeek() {
-  var wk = Number(document.getElementById("weekSelect").value) || 1;
+  var selVal = document.getElementById("weekSelect").value || "1";
+  if (selVal === "WC" || selVal === "DIV" || selVal === "CCG" || selVal === "SB") {
+    simStage(selVal);
+    return;
+  }
+  var wk = Number(selVal) || 1;
   for (var i = 0; i < games.length; i++) {
     var g = games[i];
     if (g.wk === wk && !g.played) {
@@ -616,6 +868,7 @@ function recomputeAll() {
   }
 
   leagueOrder = allAbbrs.slice().sort(cmpDesc);
+  syncPlayoffMatchups();
   applyStatsVisibility();
   renderGames();
   renderStandings();
@@ -630,9 +883,56 @@ function seedClass(conf, tm, seedNum) {
   return "seed-out";
 }
 
+function renderPlayoffRoundCards(stageKey) {
+  var list = playoffGames[stageKey] || [];
+  var scoreCls = showScoresAndStats ? "score-box" : "score-box hidden-el";
+  var actCls = showScoresAndStats ? "card-actions" : "card-actions hidden-el";
+  var html = '<div class="round-banner">' + STAGE_LABELS[stageKey] + '</div>';
+
+  for (var i = 0; i < list.length; i++) {
+    var g = list[i];
+    if (!g.away || !g.home) {
+      html += '<div class="pending-note">' + g.label + ' — Pending prior round results</div>';
+      continue;
+    }
+    var aSt = stats[g.away], hSt = stats[g.home];
+    var aWon = g.played && g.aPts > g.hPts;
+    var hWon = g.played && g.hPts > g.aPts;
+    var aSeedStr = g.aSeed ? ("#" + g.aSeed + " ") : "";
+    var hSeedStr = g.hSeed ? ("#" + g.hSeed + " ") : "";
+
+    html += '<div class="card">' +
+      '<div class="game-sub">' + g.label + '</div>' +
+      '<div class="team-pick-row ' + (aWon ? "winner" : "") + '" onclick="pickPlayoffWinner(\'' + g.id + '\', \'away\')">' +
+        '<div class="team-left">' + teamLogo(g.away, true) +
+          '<span class="team-meta">' + aSeedStr + g.away + ' (' + fmtRec(aSt) + ') <span class="pct-tag">' + fmtPct(aSt.pct) + '</span></span>' +
+        '</div>' +
+        '<input id="pa-pts-' + g.id + '" class="' + scoreCls + '" type="number" min="0" value="' + (g.aPts !== null ? g.aPts : "") + '" onclick="event.stopPropagation()">' +
+      '</div>' +
+      '<div class="team-pick-row ' + (hWon ? "winner" : "") + '" onclick="pickPlayoffWinner(\'' + g.id + '\', \'home\')">' +
+        '<div class="team-left">' + teamLogo(g.home, true) +
+          '<span class="team-meta">' + hSeedStr + g.home + ' (' + fmtRec(hSt) + ') <span class="pct-tag">' + fmtPct(hSt.pct) + '</span></span>' +
+        '</div>' +
+        '<input id="ph-pts-' + g.id + '" class="' + scoreCls + '" type="number" min="0" value="' + (g.hPts !== null ? g.hPts : "") + '" onclick="event.stopPropagation()">' +
+      '</div>' +
+      '<div class="' + actCls + '">' +
+        '<button class="b-amber" onclick="setPlayoffGameResult(\'' + g.id + '\', document.getElementById(\'pa-pts-' + g.id + '\').value, document.getElementById(\'ph-pts-' + g.id + '\').value)">Set Score</button>' +
+        '<button class="b-red" onclick="clearPlayoffGame(\'' + g.id + '\')">Clear</button>' +
+      '</div>' +
+    '</div>';
+  }
+  return html;
+}
+
 function renderGames() {
-  var wk = Number(document.getElementById("weekSelect").value) || 1;
+  var selVal = document.getElementById("weekSelect").value || "1";
   var wrap = document.getElementById("gamesList");
+  if (selVal === "WC" || selVal === "DIV" || selVal === "CCG" || selVal === "SB") {
+    wrap.innerHTML = renderPlayoffRoundCards(selVal);
+    return;
+  }
+
+  var wk = Number(selVal) || 1;
   var html = "";
   var scoreCls = showScoresAndStats ? "score-box" : "score-box hidden-el";
   var actCls = showScoresAndStats ? "card-actions" : "card-actions hidden-el";
@@ -799,45 +1099,65 @@ function renderPlayoffSeeds() {
     }
     document.getElementById(id).innerHTML = html;
   }
+  renderBracketSummary();
+}
+
+function renderBracketSummary() {
+  var out = "";
+  var confs = ["AFC", "NFC"];
+  for (var c = 0; c < confs.length; c++) {
+    var conf = confs[c];
+    out += "=== " + conf + " ===\n";
+    var wc = playoffGames.WC.filter(function(g) { return g.conf === conf; });
+    for (var w = 0; w < wc.length; w++) {
+      var wg = wc[w];
+      if (!wg.away || !wg.home) { out += "WC: TBD\n"; continue; }
+      var wWin = getGameWinner(wg);
+      out += "WC: " + wg.away + " @ " + wg.home + (wg.played ? (" (" + wg.aPts + "-" + wg.hPts + ") -> " + wWin) : " [unplayed]") + "\n";
+    }
+    var div = playoffGames.DIV.filter(function(g) { return g.conf === conf; });
+    for (var d = 0; d < div.length; d++) {
+      var dg = div[d];
+      if (!dg.away || !dg.home) { out += "DIV: Pending\n"; continue; }
+      var dWin = getGameWinner(dg);
+      out += "DIV: " + dg.away + " @ " + dg.home + (dg.played ? (" (" + dg.aPts + "-" + dg.hPts + ") -> " + dWin) : " [unplayed]") + "\n";
+    }
+    var ccg = playoffGames.CCG.filter(function(g) { return g.conf === conf; })[0];
+    if (!ccg || !ccg.away || !ccg.home) { out += "CCG: Pending\n\n"; continue; }
+    var cWin = getGameWinner(ccg);
+    out += "CCG: " + ccg.away + " @ " + ccg.home + (ccg.played ? (" (" + ccg.aPts + "-" + ccg.hPts + ") -> " + cWin) : " [unplayed]") + "\n\n";
+  }
+  var sb = playoffGames.SB[0];
+  if (sb && sb.away && sb.home) {
+    var sbWin = getGameWinner(sb);
+    out += "SUPER BOWL: " + sb.away + " vs " + sb.home + (sb.played ? (" (" + sb.aPts + "-" + sb.hPts + ") -> CHAMP: " + sbWin) : " [unplayed]");
+  } else {
+    out += "SUPER BOWL: Pending Conference Champions";
+  }
+  var el = document.getElementById("bracketOutput");
+  if (el) el.textContent = out;
 }
 
 function simBracket() {
   recomputeAll();
-  function pickGame(lo, hi, neutral) {
-    var res = simPair(lo, hi, neutral);
-    var ap = res[0], hp = res[1];
-    if (ap === hp) return [ap + 3, hp, lo];
-    return [ap, hp, ap > hp ? lo : hi];
-  }
-  var out = "";
-  var champs = {};
-  var confs = ["AFC", "NFC"];
-  for (var c = 0; c < confs.length; c++) {
-    var conf = confs[c];
-    var seeds = seedsByConf[conf].slice(0, 7);
-    var wcPairs = [[seeds[1], seeds[6]], [seeds[2], seeds[5]], [seeds[3], seeds[4]]];
-    var wcWins = [];
-    out += "=== " + conf + " ===\n";
-    for (var w = 0; w < wcPairs.length; w++) {
-      var hi = wcPairs[w][0], lo = wcPairs[w][1];
-      var gRes = pickGame(lo, hi, false);
-      wcWins.push(gRes[2]);
-      out += "WC: " + lo + " @ " + hi + " (" + gRes[0] + "-" + gRes[1] + ") -> " + gRes[2] + "\n";
+  var order = ["WC", "DIV", "CCG", "SB"];
+  for (var s = 0; s < order.length; s++) {
+    syncPlayoffMatchups();
+    var list = playoffGames[order[s]] || [];
+    for (var i = 0; i < list.length; i++) {
+      var g = list[i];
+      if (g.away && g.home) {
+        var res = simPair(g.away, g.home, !!g.neutral);
+        var ap = res[0], hp = res[1];
+        if (ap === hp) ap += 3;
+        g.aPts = ap;
+        g.hPts = hp;
+        g.played = true;
+      }
     }
-    var ord = {};
-    for (var sIdx = 0; sIdx < seeds.length; sIdx++) ord[seeds[sIdx]] = sIdx;
-    var pool = [seeds[0]].concat(wcWins).sort(function(a, b) { return ord[a] - ord[b]; });
-    var d1 = pickGame(pool[3], pool[0], false);
-    var d2 = pickGame(pool[2], pool[1], false);
-    out += "DIV: " + pool[3] + " @ " + pool[0] + " (" + d1[0] + "-" + d1[1] + ") -> " + d1[2] + " | " + pool[2] + " @ " + pool[1] + " (" + d2[0] + "-" + d2[1] + ") -> " + d2[2] + "\n";
-    var cPair = [d1[2], d2[2]].sort(function(a, b) { return ord[a] - ord[b]; });
-    var ccg = pickGame(cPair[1], cPair[0], false);
-    champs[conf] = ccg[2];
-    out += "CCG: " + cPair[1] + " @ " + cPair[0] + " (" + ccg[0] + "-" + ccg[1] + ") -> " + ccg[2] + "\n\n";
   }
-  var sb = pickGame(champs.AFC, champs.NFC, true);
-  out += "SUPER BOWL: " + champs.AFC + " vs " + champs.NFC + " (" + sb[0] + "-" + sb[1] + ") -> CHAMP: " + sb[2];
-  document.getElementById("bracketOutput").textContent = out;
+  saveState();
+  recomputeAll();
 }
 
 function switchTab(tab) {
@@ -851,10 +1171,15 @@ function switchTab(tab) {
 
 function initUI() {
   var wkSel = document.getElementById("weekSelect");
-  for (var w = 1; w <= 18; w++) {
+  for (var s = 0; s < STAGES.length; s++) {
+    var val = STAGES[s];
     var opt = document.createElement("option");
-    opt.value = String(w);
-    opt.textContent = "Week " + w;
+    opt.value = val;
+    if (val === "WC") opt.textContent = "Wild Card (WC)";
+    else if (val === "DIV") opt.textContent = "Divisional (DIV)";
+    else if (val === "CCG") opt.textContent = "Conf Champ (CCG)";
+    else if (val === "SB") opt.textContent = "Super Bowl (SB)";
+    else opt.textContent = "Week " + val;
     wkSel.appendChild(opt);
   }
   wkSel.value = "1";
