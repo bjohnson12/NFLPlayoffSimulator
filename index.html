@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<title>Playoff Predictors • 18-Wk NFL</title>
+<title>NFL Simulator</title>
 <style>
   * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
   body {
@@ -28,7 +28,25 @@
     gap: 8px;
     margin-bottom: 8px;
   }
-  h1 { margin: 0; font-size: 14px; font-weight: 800; }
+  h1 { margin: 0; font-size: 16px; font-weight: 800; letter-spacing: 0.3px; }
+  .stage-nav {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+  }
+  .nav-step {
+    background: #182234;
+    color: #f3f4f6;
+    border: 1px solid #263248;
+    padding: 5px 10px;
+    font-size: 14px;
+    font-weight: 800;
+    line-height: 1.1;
+  }
+  .nav-step:disabled {
+    opacity: 0.35;
+    cursor: default;
+  }
   .btn-row { display: flex; gap: 6px; overflow-x: auto; }
   select, button, input {
     font-family: inherit;
@@ -162,8 +180,12 @@
 
 <header>
   <div class="title-row">
-    <h1>PLAYOFF PREDICTORS • 18-WK + POSTSEASON</h1>
-    <select id="weekSelect"></select>
+    <h1>NFL Simulator</h1>
+    <div class="stage-nav">
+      <button id="prevStageBtn" class="nav-step" onclick="stepStage(-1)" aria-label="Previous week">&lsaquo;</button>
+      <select id="weekSelect"></select>
+      <button id="nextStageBtn" class="nav-step" onclick="stepStage(1)" aria-label="Next week">&rsaquo;</button>
+    </div>
   </div>
   <div class="btn-row">
     <button class="b-green" onclick="simCurrentWeek()">Sim Stage</button>
@@ -373,7 +395,7 @@ function generateBalanced18WeekSchedule() {
 
 var SCHED = generateBalanced18WeekSchedule();
 var games = [];
-var playoffGames = {}; // stage ("WC"|"DIV"|"CCG"|"SB") -> array of game objects
+var playoffGames = {};
 var stats = {};
 var seedsByConf = { AFC: [], NFC: [] };
 var divChamps = { AFC: {}, NFC: {} };
@@ -502,6 +524,26 @@ function toggleStatsMode() {
   renderTeamSchedule();
 }
 
+function updateStageNavButtons() {
+  var wkSel = document.getElementById("weekSelect");
+  var prevBtn = document.getElementById("prevStageBtn");
+  var nextBtn = document.getElementById("nextStageBtn");
+  if (!wkSel || !prevBtn || !nextBtn) return;
+  prevBtn.disabled = (wkSel.selectedIndex <= 0);
+  nextBtn.disabled = (wkSel.selectedIndex >= wkSel.options.length - 1);
+}
+
+function stepStage(delta) {
+  var wkSel = document.getElementById("weekSelect");
+  if (!wkSel) return;
+  var nextIdx = wkSel.selectedIndex + delta;
+  if (nextIdx >= 0 && nextIdx < wkSel.options.length) {
+    wkSel.selectedIndex = nextIdx;
+    updateStageNavButtons();
+    renderGames();
+  }
+}
+
 function simPair(away, home, neutral) {
   var pa = TEAMS[away].pwr + (neutral ? 0 : -1.5);
   var ph = TEAMS[home].pwr + (neutral ? 0 : 1.5);
@@ -517,7 +559,6 @@ function getGameWinner(g) {
   if (!g || !g.played || g.aPts === null || g.hPts === null || !g.away || !g.home) return null;
   if (g.aPts > g.hPts) return g.away;
   if (g.hPts > g.aPts) return g.home;
-  // Playoff tiebreaker fallback: higher seed (lower seed number) advances
   if (g.aSeed && g.hSeed) return g.aSeed < g.hSeed ? g.away : g.home;
   return g.home;
 }
@@ -571,7 +612,6 @@ function syncPlayoffMatchups() {
     var divB = divList[1];
 
     if (allWcDone && s1 && wcWinners.length === 3) {
-      // Lowest remaining seed (highest seed number) plays #1 seed
       wcWinners.sort(function(a, b) { return (seedRank[b] || 99) - (seedRank[a] || 99); });
       var lowestSeedTm = wcWinners[0];
       var otherTwo = [wcWinners[1], wcWinners[2]].sort(function(a, b) { return (seedRank[a] || 99) - (seedRank[b] || 99); });
@@ -668,7 +708,7 @@ function setPlayoffGameResult(pgid, ap, hp) {
   if (!g || !g.away || !g.home) return;
   var aVal = Math.max(0, Number(ap) || 0);
   var hVal = Math.max(0, Number(hp) || 0);
-  if (aVal === hVal) aVal += 3; // No ties in playoffs
+  if (aVal === hVal) aVal += 3;
   g.aPts = aVal;
   g.hPts = hVal;
   g.played = true;
@@ -870,6 +910,7 @@ function recomputeAll() {
   leagueOrder = allAbbrs.slice().sort(cmpDesc);
   syncPlayoffMatchups();
   applyStatsVisibility();
+  updateStageNavButtons();
   renderGames();
   renderStandings();
   renderTeamSchedule();
@@ -1183,7 +1224,10 @@ function initUI() {
     wkSel.appendChild(opt);
   }
   wkSel.value = "1";
-  wkSel.onchange = renderGames;
+  wkSel.onchange = function() {
+    updateStageNavButtons();
+    renderGames();
+  };
 
   var tmSel = document.getElementById("teamSelect");
   var keys = Object.keys(TEAMS).sort();
