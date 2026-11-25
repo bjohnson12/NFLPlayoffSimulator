@@ -329,12 +329,7 @@ var STAGE_LABELS = {
  * 2) 4 games vs 1 intra-conference division (2 home, 2 away)
  * 3) 4 games vs 1 inter-conference division (2 home, 2 away)
  * 4) 2 intra-conference same-place games vs remaining 2 conference divisions (1 home, 1 away)
- * 5) 1 inter-conference 17th game vs 1 remaining opposite-conference division (AFC hosts odd cycle, NFC hosts even cycle)
- * Constraints enforced:
- * - Every team plays 17 games (8H/9A or 9H/8A)
- * - Bye weeks strictly in Weeks 5–14
- * - Max 3 consecutive home or away games (no 4-game road trips or homestands)
- * - Week 18 is exclusively intra-divisional games
+ * 5) 1 inter-conference 17th game vs 1 remaining opposite-conference division
  */
 function buildTrueNFLMatchups() {
   var divs = ["East", "North", "South", "West"];
@@ -346,7 +341,6 @@ function buildTrueNFLMatchups() {
       var group = Object.keys(TEAMS).filter(function(k) {
         return TEAMS[k].conf === confs[c] && TEAMS[k].div === divs[d];
       });
-      // Seed tier order slightly randomized around team strength so rankings stay realistic
       group.sort(function(a, b) {
         return (TEAMS[b].pwr + (Math.random() - 0.5) * 6) - (TEAMS[a].pwr + (Math.random() - 0.5) * 6);
       });
@@ -372,7 +366,6 @@ function buildTrueNFLMatchups() {
     }
   }
 
-  // Balanced 4x4 bipartite home/away pattern (2 home, 2 away for every team)
   var H4 = [
     [1, 1, 0, 0],
     [0, 1, 1, 0],
@@ -380,7 +373,6 @@ function buildTrueNFLMatchups() {
     [1, 0, 0, 1]
   ];
 
-  // Pick one of the 3 valid intra-conference division pairings
   var intraPairings = [
     [["East", "North"], ["South", "West"]],
     [["East", "South"], ["North", "West"]],
@@ -416,11 +408,7 @@ function buildTrueNFLMatchups() {
     }
   }
 
-  // 4. Two intra-conference same-place games (1 home, 1 away against the remaining 2 conference divisions)
-  var remOffsets = [1, 2, 3].filter(function(off) {
-    return divs[off] !== chosenIntra[0][1] && divs[off] !== chosenIntra[1][1];
-  });
-  // Specifically find the 2 remaining divisions for each division
+  // 4. Two intra-conference same-place games (1 home, 1 away against remaining 2 conference divisions)
   for (var c4 = 0; c4 < confs.length; c4++) {
     var cf4 = confs[c4];
     var pairedWith = {};
@@ -428,14 +416,6 @@ function buildTrueNFLMatchups() {
       pairedWith[chosenIntra[p4][0]] = chosenIntra[p4][1];
       pairedWith[chosenIntra[p4][1]] = chosenIntra[p4][0];
     }
-    var remPairs = [];
-    for (var d4 = 0; d4 < 4; d4++) {
-      var dv = divs[d4];
-      var otherTwo = divs.filter(function(x) { return x !== dv && x !== pairedWith[dv]; });
-      // Orient as a directed 4-cycle so every division gets 1 home series and 1 away series
-      remPairs.push([dv, otherTwo[0]]);
-    }
-    // Deduplicate directed pairs to form a clean 4-cycle (each team gets 1H + 1A)
     var cycle = [];
     var cur = divs[0];
     var used = {};
@@ -443,7 +423,7 @@ function buildTrueNFLMatchups() {
       used[cur] = true;
       var cands = divs.filter(function(x) { return x !== cur && x !== pairedWith[cur]; });
       var nxt = !used[cands[0]] ? cands[0] : (!used[cands[1]] ? cands[1] : divs[0]);
-      cycle.push([cur, nxt]); // cur hosts nxt for all 4 rank seeds
+      cycle.push([cur, nxt]);
       cur = nxt;
     }
     for (var cy = 0; cy < cycle.length; cy++) {
@@ -455,7 +435,7 @@ function buildTrueNFLMatchups() {
     }
   }
 
-  // 5. One inter-conference 17th same-place game (different NFC division from step 3)
+  // 5. One inter-conference 17th same-place game
   var shift17 = (shift4 + 1 + Math.floor(Math.random() * 3)) % 4;
   var afcHosts17 = Math.random() < 0.5;
   for (var d5 = 0; d5 < 4; d5++) {
@@ -467,7 +447,7 @@ function buildTrueNFLMatchups() {
     }
   }
 
-  return matchups; // Exactly 272 games (17 per team)
+  return matchups;
 }
 
 function generateBalanced18WeekSchedule() {
@@ -478,18 +458,17 @@ function generateBalanced18WeekSchedule() {
     var schedByWk = {};
     for (var w = 1; w <= 18; w++) schedByWk[w] = [];
 
-    // Separate divisional games (reserve 16 for Week 18 so every Week 18 game is a division clash)
-    var divGames = [];
-    var otherGames = [];
+    // Pick 16 divisional games (2 per division) for Week 18 finale, then interleave ALL remaining games evenly
     var wk18Pairs = {};
     var wk18UsedTeam = {};
+    var remaining = [];
 
-    // Shuffle rawGames first
+    // Shuffle all games first so divisional and non-divisional matchups mix naturally
     rawGames.sort(function() { return Math.random() - 0.5; });
 
     for (var i = 0; i < rawGames.length; i++) {
       var g = rawGames[i];
-      if (g[2] && !wk18UsedTeam[g[0]] && !wk18UsedTeam[g[1]]) {
+      if (g[2] && schedByWk[18].length < 16 && !wk18UsedTeam[g[0]] && !wk18UsedTeam[g[1]]) {
         var pairKey = [g[0], g[1]].sort().join("-");
         if (!wk18Pairs[pairKey]) {
           wk18Pairs[pairKey] = true;
@@ -499,14 +478,28 @@ function generateBalanced18WeekSchedule() {
           continue;
         }
       }
-      if (g[2]) divGames.push(g);
-      else otherGames.push(g);
+      remaining.push(g);
     }
 
-    // Ensure all 16 Week 18 slots are filled (2 per division)
     if (schedByWk[18].length < 16) continue;
 
-    // Assign bye weeks in official NFL window (Weeks 5–14, 2 to 4 teams per week)
+    // Interleave remaining divisional and non-divisional games smoothly across the pool
+    var remDiv = remaining.filter(function(x) { return x[2]; });
+    var remNonDiv = remaining.filter(function(x) { return !x[2]; });
+    var pool = [];
+    var dPtr = 0, nPtr = 0;
+    while (dPtr < remDiv.length || nPtr < remNonDiv.length) {
+      if (nPtr < remNonDiv.length) {
+        // Place ~2 non-divisional games per 1 divisional game so divisional games are spaced out
+        pool.push(remNonDiv[nPtr++]);
+        if (nPtr < remNonDiv.length) pool.push(remNonDiv[nPtr++]);
+      }
+      if (dPtr < remDiv.length) {
+        pool.push(remDiv[dPtr++]);
+      }
+    }
+
+    // Assign bye weeks in official NFL window (Weeks 5–14)
     var byePool = [5, 5, 6, 6, 7, 7, 8, 8, 9, 9, 10, 10, 11, 11, 12, 12, 13, 13, 14, 14, 6, 7, 8, 9, 10, 11, 12, 13, 14, 5, 10, 11];
     byePool.sort(function() { return Math.random() - 0.5; });
     var teamBye = {};
@@ -514,7 +507,6 @@ function generateBalanced18WeekSchedule() {
       teamBye[allTeams[t]] = byePool[t];
     }
 
-    var pool = divGames.concat(otherGames);
     var busy = {};
     for (var wk = 1; wk <= 18; wk++) busy[wk] = {};
     for (var w18 = 0; w18 < schedByWk[18].length; w18++) {
@@ -522,8 +514,7 @@ function generateBalanced18WeekSchedule() {
       busy[18][schedByWk[18][w18][1]] = true;
     }
 
-    // Track team's assigned weeks to prevent rematches within 2 weeks and long road/home streaks
-    var teamLocByWk = {}; // team -> { wk: 'H'|'A' }
+    var teamLocByWk = {};
     for (var tm = 0; tm < allTeams.length; tm++) teamLocByWk[allTeams[tm]] = {};
     for (var j18 = 0; j18 < schedByWk[18].length; j18++) {
       teamLocByWk[schedByWk[18][j18][0]][18] = "A";
@@ -545,12 +536,10 @@ function generateBalanced18WeekSchedule() {
       return run;
     }
 
-    // Backtracking / MRV greedy placement across Weeks 1–17
     var unplaced = pool.slice();
     var stuck = false;
 
     while (unplaced.length > 0) {
-      // Pick the game with the fewest valid week options (Most Constrained Variable)
       var bestIdx = -1;
       var bestCands = null;
 
@@ -579,7 +568,6 @@ function generateBalanced18WeekSchedule() {
       var chosenGame = unplaced.splice(bestIdx, 1)[0];
       var aTeam = chosenGame[0], hTeam = chosenGame[1];
 
-      // Score candidate weeks to avoid 4+ game road/home streaks and early 3-game road starts
       bestCands.sort(function(wA, wB) {
         var sA = Math.max(streakScore(aTeam, wA, "A"), streakScore(hTeam, wA, "H"));
         var sB = Math.max(streakScore(aTeam, wB, "A"), streakScore(hTeam, wB, "H"));
@@ -602,14 +590,11 @@ function generateBalanced18WeekSchedule() {
     }
   }
 
-  // Fallback guaranteed solver without bye pre-lock if random bye distribution hit a tight cycle
-  var fallbackGames = buildTrueNFLMatchups();
+  var fallbackGames = buildTrueNFLMatchups().sort(function() { return Math.random() - 0.5; });
   var fbSched = {};
   for (var fw = 1; fw <= 18; fw++) fbSched[fw] = [];
   var fbBusy = {};
   for (var fw2 = 1; fw2 <= 18; fw2++) fbBusy[fw2] = {};
-  var fbGamesCount = {};
-  for (var ft = 0; ft < allTeams.length; ft++) fbGamesCount[allTeams[ft]] = 0;
 
   for (var fi = 0; fi < fallbackGames.length; fi++) {
     var fg = fallbackGames[fi];
@@ -685,8 +670,8 @@ function fmtRec(st) {
 function saveState() {
   try {
     if (window.localStorage) {
-      window.localStorage.setItem("pp_18wk_nfl_v7_reg", JSON.stringify(games));
-      window.localStorage.setItem("pp_18wk_nfl_v7_po", JSON.stringify(playoffGames));
+      window.localStorage.setItem("pp_18wk_nfl_v8_reg", JSON.stringify(games));
+      window.localStorage.setItem("pp_18wk_nfl_v8_po", JSON.stringify(playoffGames));
       window.localStorage.setItem("pp_18wk_stats_mode", showScoresAndStats ? "1" : "0");
     }
   } catch (e) {}
@@ -700,7 +685,7 @@ function loadState() {
       if (m === "0") showScoresAndStats = false;
       else if (m === "1") showScoresAndStats = true;
 
-      var rawPo = window.localStorage.getItem("pp_18wk_nfl_v7_po");
+      var rawPo = window.localStorage.getItem("pp_18wk_nfl_v8_po");
       if (rawPo) {
         var parsedPo = JSON.parse(rawPo);
         if (parsedPo && parsedPo.WC && parsedPo.DIV && parsedPo.CCG && parsedPo.SB) {
@@ -708,7 +693,7 @@ function loadState() {
         }
       }
 
-      var raw = window.localStorage.getItem("pp_18wk_nfl_v7_reg");
+      var raw = window.localStorage.getItem("pp_18wk_nfl_v8_reg");
       if (raw) {
         var parsed = JSON.parse(raw);
         if (parsed && parsed.length === 272) { games = parsed; return; }
